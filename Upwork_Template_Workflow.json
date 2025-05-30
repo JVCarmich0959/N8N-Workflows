@@ -1,0 +1,398 @@
+{
+  "meta": {},
+  "nodes": [
+    {
+      "id": "68872f31-415c-45be-b37f-4d841e9f1233",
+      "name": "Set Workflow Config",
+      "type": "n8n-nodes-base.set",
+      "notes": "Defines reusable variables for Upwork template",
+      "position": [
+        -400,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "recipientEmail",
+              "value": "={{ $env.RECIPIENT_EMAIL || 'client@example.com' }}",
+              "type": "string"
+            },
+            {
+              "name": "videoIdColumn",
+              "value": "Youtube video id",
+              "type": "string"
+            },
+            {
+              "name": "statusColumn",
+              "value": "Status",
+              "type": "string"
+            },
+            {
+              "name": "processedStatus",
+              "value": "Mail Sent",
+              "type": "string"
+            },
+            {
+              "name": "maxComments",
+              "value": 50,
+              "type": "number"
+            },
+            {
+              "name": "testMode",
+              "value": "={{ $env.TEST_MODE || false }}",
+              "type": "boolean"
+            },
+            {
+              "name": "logWebhookUrl",
+              "value": "={{ $env.LOG_WEBHOOK || '' }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7eb258e6-6c8f-403f-8c79-5260cbcf575d",
+      "name": "Pick Video Ids from Google sheet",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "notes": "Polls spreadsheet for new videos",
+      "position": [
+        -600,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "7e84fe72-1a40-4b9e-aae1-32caa20e26e9",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "notes": "Process only rows with pending status",
+      "position": [
+        -200,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json[$node['Set Workflow Config'].json.statusColumn] }}",
+              "operation": "equals",
+              "rightValue": "Pending"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "8c8fcd6d-c53c-46cf-adf2-a4c89de3d00c",
+      "name": "Limit Execution",
+      "type": "n8n-nodes-base.limit",
+      "notes": "Limits number of rows processed when testMode is enabled",
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "limit": "={{ $json.testMode ? 1 : 50 }}"
+      }
+    },
+    {
+      "id": "d64d8047-8b3c-4c47-a0ea-f85fd5eed319",
+      "name": "Set Video Details",
+      "type": "n8n-nodes-base.set",
+      "notes": "Prepare video id and limits for comments",
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "videoId",
+              "value": "={{ $json[$node['Set Workflow Config'].json.videoIdColumn] }}",
+              "type": "string"
+            },
+            {
+              "name": "maxComments",
+              "value": "={{ $node['Set Workflow Config'].json.maxComments }}",
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3bc47fd0-21b6-4f05-bfb0-7204a99a73ec",
+      "name": "Get Youtube Video Details",
+      "type": "n8n-nodes-base.youTube",
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "videoId": "={{ $json.videoId }}",
+        "resource": "video",
+        "operation": "get"
+      }
+    },
+    {
+      "id": "3976f9d1-4706-42da-9b43-262309b641f1",
+      "name": "Get Youtube Video Comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/commentThreads",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "videoId",
+              "value": "={{ $json.videoId }}"
+            },
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "12436bc3-a4b5-49ff-a077-86c336ac5d0d",
+      "name": "Prepare Comments Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const items=$input.all();\nconst max=$node['Set Workflow Config'].json.maxComments;\nreturn items.slice(0,max);"
+      }
+    },
+    {
+      "id": "eddc4464-ebeb-4457-9fc7-81a5e169730f",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "text": "={{ $json.commentTexts }}",
+        "options": {
+          "systemMessage": "Analyze YouTube comments"
+        }
+      }
+    },
+    {
+      "id": "b3561b15-3796-4acd-aa3e-9a17984b76ed",
+      "name": "Prepare HTML for Email",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return {emailHTML:`<p>${$json.output}</p>`};"
+      }
+    },
+    {
+      "id": "467b8053-294f-466f-8b5c-52c35ec6c4bf",
+      "name": "Gmail Account Configuration",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        1400,
+        300
+      ],
+      "parameters": {
+        "sendTo": "={{ $node['Set Workflow Config'].json.recipientEmail }}",
+        "message": "={{ $json.emailHTML }}"
+      }
+    },
+    {
+      "id": "a46ff5a9-afaa-4df1-8471-ae69c21a9868",
+      "name": "Update Status on Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1600,
+        300
+      ],
+      "parameters": {
+        "columns": {
+          "value": {
+            "Id": "={{ $json.Id }}",
+            "Status": "={{ $node['Set Workflow Config'].json.processedStatus }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "5d172cde-8beb-4aa5-9ea4-0a64ef93a978",
+      "name": "Send Log to Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $node['Set Workflow Config'].json.logWebhookUrl }}",
+        "method": "POST",
+        "sendBody": true
+      }
+    },
+    {
+      "id": "892ca7b7-d7bf-42a6-987a-7cef555f054a",
+      "name": "\ud83e\uddd0 Modular Workflow Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -600,
+        100
+      ],
+      "parameters": {
+        "content": "### Modular Template\nTrigger > Fetch > Process > Report"
+      }
+    }
+  ],
+  "connections": {
+    "Pick Video Ids from Google sheet": {
+      "main": [
+        [
+          {
+            "node": "Set Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Workflow Config": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Limit Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Execution": {
+      "main": [
+        [
+          {
+            "node": "Set Video Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Video Details": {
+      "main": [
+        [
+          {
+            "node": "Get Youtube Video Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Youtube Video Details": {
+      "main": [
+        [
+          {
+            "node": "Get Youtube Video Comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Youtube Video Comments": {
+      "main": [
+        [
+          {
+            "node": "Prepare Comments Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Comments Data": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare HTML for Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare HTML for Email": {
+      "main": [
+        [
+          {
+            "node": "Gmail Account Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Account Configuration": {
+      "main": [
+        [
+          {
+            "node": "Update Status on Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status on Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Log to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
